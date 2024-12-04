@@ -1,0 +1,7 @@
+Flask
+gspread
+google-auth
+pandas
+twilio
+apscheduler
+requests
