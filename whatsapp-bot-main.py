@@ -200,7 +200,7 @@ def index():
 def process_user_command(phone_number: str, command: str) -> None:
     """Process commands from the user."""
     try:
-        players_df = fetch_sheet_data("player-workspace", "Players")
+        players_df = fetch_sheet_data("player-response-sheet", "Players")
 
         # Normalize phone numbers in Players sheet
         players_df["Phone Number"] = players_df["Phone Number"].apply(
