@@ -4,6 +4,9 @@ from google.oauth2.service_account import Credentials
 from twilio.rest import Client
 import pandas as pd
 from dotenv import load_dotenv
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from datetime import datetime
 import os
 import logging
 
@@ -41,6 +44,124 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 logger = logging.getLogger(__name__)
+
+# Initialize APScheduler
+scheduler = BackgroundScheduler()
+scheduler.start()
+
+# Frequency to days mapping
+FREQUENCY_TO_DAYS = {
+    "daily": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+    "weekly": ["Monday"],
+    "twice a week": ["Tuesday", "Thursday"],
+    "thrice a week": ["Monday", "Wednesday", "Friday"],
+}
+
+def map_frequency_to_days(frequency: str) -> list:
+    """
+    Map notification frequency to specific days of the week.
+    """
+    return FREQUENCY_TO_DAYS.get(frequency.lower(), [])
+
+def parse_time(time_str: str) -> tuple:
+    """
+    Parse time in 'hh:mm AM/PM' format and return hour and minute.
+    """
+    try:
+        time_obj = datetime.strptime(time_str.strip(), "%I:%M %p")
+        return time_obj.hour, time_obj.minute
+    except ValueError:
+        raise ValueError(f"Invalid time format: {time_str}. Expected 'hh:mm AM/PM'.")
+
+def send_scheduled_notification(player: pd.Series):
+    """
+    Send a scheduled notification for a player.
+    """
+    try:
+        matched_slots = match_player_with_slots(player)
+        if not matched_slots.empty:
+            message = construct_business_message(player["Player Name"], matched_slots)
+            send_whatsapp_message(player["Phone Number"], message)
+        else:
+            send_whatsapp_message(
+                player["Phone Number"],
+                f"Hi {player['Player Name']}, no available slots match your preferences right now."
+            )
+        logger.info(f"Notification sent to {player['Player Name']}.")
+    except Exception as e:
+        logger.error(f"Error sending scheduled notification for {player['Player Name']}: {e}")
+
+def schedule_notifications():
+    """Schedule notifications based on player preferences."""
+    try:
+        players_df = fetch_sheet_data("player-response-sheet", "Players")
+        logger.info(f"Fetched players data for scheduling:\n{players_df}")
+
+        # Map full weekday names to abbreviated names
+        day_map = {
+            "monday": "mon",
+            "tuesday": "tue",
+            "wednesday": "wed",
+            "thursday": "thu",
+            "friday": "fri",
+            "saturday": "sat",
+            "sunday": "sun"
+        }
+
+        # Iterate through each player and schedule notifications
+        for _, player in players_df.iterrows():
+            notification_frequency = player["Notification Frequency"].strip().lower()
+            notification_time = player["Notification Time"].strip()
+
+            # Normalize the day names based on frequency
+            if notification_frequency == "daily":
+                days = list(day_map.values())  # All days
+            elif notification_frequency == "weekly":
+                days = ["mon"]  # Default to Monday
+            elif notification_frequency == "twice a week":
+                days = ["mon", "thu"]
+            elif notification_frequency == "thrice a week":
+                days = ["mon", "wed", "fri"]
+            else:
+                logger.error(f"Unknown frequency: {notification_frequency} for player {player['Player Name']}")
+                continue
+
+            # Schedule notifications for each day
+            for day in days:
+                if day not in day_map.values():
+                    logger.error(f"Invalid weekday abbreviation: {day}")
+                    continue
+
+                hour, minute = parse_time(notification_time)
+
+                scheduler.add_job(
+                    func=notify_player,
+                    trigger="cron",
+                    day_of_week=day,
+                    hour=hour,
+                    minute=minute,
+                    args=[player],
+                    id=f"{player['Phone Number']}_{day}",
+                    replace_existing=True
+                )
+                logger.info(f"Scheduled notification for {player['Player Name']} on {day} at {notification_time}")
+    except Exception as e:
+        logger.error(f"Error scheduling notifications: {e}")
+
+
+def parse_time(notification_time: str) -> tuple:
+    """Parse time from string format like '10:00 AM' to hour and minute."""
+    try:
+        time, meridian = notification_time.split()
+        hour, minute = map(int, time.split(":"))
+        if meridian.lower() == "pm" and hour != 12:
+            hour += 12
+        if meridian.lower() == "am" and hour == 12:
+            hour = 0
+        return hour, minute
+    except Exception as e:
+        logger.error(f"Error parsing time '{notification_time}': {e}")
+        raise ValueError(f"Invalid time format: {notification_time}")
 
 # Helper Functions
 def fetch_sheet_data(workspace_name: str, worksheet_name: str) -> pd.DataFrame:
@@ -227,4 +348,5 @@ def process_user_command(phone_number: str, command: str) -> None:
 
 # Run the app
 if __name__ == "__main__":
+    schedule_notifications()
     app.run(host="0.0.0.0", port=8000, debug=True)
