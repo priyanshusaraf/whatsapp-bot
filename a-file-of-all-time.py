@@ -51,10 +51,10 @@ scheduler.start()
 
 # Frequency to days mapping
 FREQUENCY_TO_DAYS = {
-    "daily": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
-    "weekly": ["Monday"],
-    "twice a week": ["Tuesday", "Thursday"],
-    "thrice a week": ["Monday", "Wednesday", "Friday"],
+    "Daily": ["mon", "tue", "wed", "thur", "fri", "sat", "sun"],
+    "Weekly": ["mon"],
+    "Twice a week": ["tue", "thur"],
+    "Thrice a week": ["mon", "wed", "fri"],
 }
 
 def map_frequency_to_days(frequency: str) -> list:
@@ -349,4 +349,4 @@ def process_user_command(phone_number: str, command: str) -> None:
 # Run the app
 if __name__ == "__main__":
     schedule_notifications()
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    app.run(host="0.0.0.0", port=8000, debug=False)
