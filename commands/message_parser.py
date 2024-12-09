@@ -63,3 +63,17 @@ def parse_add_command(command_text: str) -> dict:
             "new": [s.strip().capitalize() for s in additional_sports if s.strip()],
         }
     return {}
+
+def parse_remove_command(command_text: str) -> dict:
+    command = command_text.lower().strip()
+    remove_match = re.search(r"remove ([a-z, and]+)", command)
+
+    if remove_match:
+        sports_to_remove_raw = remove_match.group(1)
+        sports_to_remove = re.split(r",| and | or ", sports_to_remove_raw)
+        return {
+            "action": "remove",
+            "remove": [s.strip().capitalize() for s in sports_to_remove if s.strip()],
+        }
+
+    return {}
