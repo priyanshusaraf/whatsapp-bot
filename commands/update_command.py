@@ -8,10 +8,16 @@ logger = logging.getLogger(__name__)
 
 # Court Aliases (Case-Insensitive)
 COURT_ALIASES = {
-    "turfxl": "TurfXL",
+    "turfxl": "turfXL",
     "playplex": "PlayPlex",
     "turfedge": "TurfEdge",
-    "padelclub": "PadelClub",
+    "padelclub": "The Padel Club",
+}
+
+# Booking Links
+BUSINESS_LINKS = {
+    "turfXL": "https://rebrand.ly/sy6d8zz",
+    "PadelClub": "https://rebrand.ly/qd75mj9",
 }
 
 # --- Handle Update Command ---
@@ -121,11 +127,21 @@ def send_latest_updates(player, phone_number: str):
         logger.error(f"Error fetching updates for {player['Player Name']}: {e}")
 
 
+# --- Construct Update Message with Booking Links ---
 def construct_update_message(player_name: str, slots_df) -> str:
     message = f"Hi {player_name}, here are the latest updates for your preferences:\n\n"
+    
     for _, slot in slots_df.iterrows():
+        business = slot['Business']
+        sport = slot['Sport'].capitalize()
+        locality = slot['Locality'].capitalize()
+        timing = slot['Timing']
+        booking_link = BUSINESS_LINKS.get(business, "Booking link not available")
+
         message += (
-            f"- *Business*: {slot['Business']} | *Sport*: {slot['Sport'].capitalize()} | "
-            f"*Locality*: {slot['Locality'].capitalize()} | *Timing*: {slot['Timing']}\n"
+            f"• *Business*: {business} | *Sport*: {sport} | "
+            f"*Locality*: {locality} | *Timing*: {timing}\n"
+            f"👉 *Book Now*: {booking_link}\n\n"
         )
+
     return message

@@ -3,7 +3,7 @@ from sheets.google_sheets import fetch_sheet_data, update_google_sheet
 from commands.message_parser import parse_change_command
 from commands.validators import validate_sports
 from notifications.whatsapp_notifier import send_whatsapp_message
-
+import re
 logger = logging.getLogger(__name__)
 
 SUPPORTED_SPORTS = {
@@ -13,8 +13,21 @@ SUPPORTED_SPORTS = {
     'cricket'
 }
 
+SUPPORTED_FREQUENCIES = {
+    "daily": "Daily",
+    "weekly": "Weekly",
+    "twice a week": "Twice a Week",
+    "thrice a week": "Thrice a Week",
+    "weekend": "Weekend",
+    "weekends": "Weekend",
+}
+
+# --- Handle Change Command ---
 def handle_change_command(phone_number: str, command_text: str) -> None:
     try:
+        # Fetch player data
+        command_text_lower = command_text.lower().strip()
+
         # Fetch player data
         players_df = fetch_sheet_data("player-response-sheet", "Players")
         players_df["Phone Number"] = players_df["Phone Number"].apply(str).str.strip()
@@ -30,7 +43,55 @@ def handle_change_command(phone_number: str, command_text: str) -> None:
         player_data = player.iloc[0]
         row_index = player.index[0] + 2  # Adjust for header
 
-        # Parse the change command
+        acknowledgment = []
+
+        # --- Handle Notification Frequency Update ---
+        if command_text_lower.startswith("change notification frequency to"):
+            new_frequency = command_text_lower.replace(
+                "change notification frequency to", ""
+            ).strip()
+
+            if new_frequency not in SUPPORTED_FREQUENCIES:
+                send_whatsapp_message(
+                    phone_number,
+                    f"Invalid notification frequency. Supported values are: {', '.join(SUPPORTED_FREQUENCIES.values())}.",
+                )
+                return
+
+            # Update the notification frequency
+            update_google_sheet(
+                "Notification Frequency", SUPPORTED_FREQUENCIES[new_frequency], row_index
+            )
+            send_whatsapp_message(
+                phone_number,
+                f"Your notification frequency has been updated to {SUPPORTED_FREQUENCIES[new_frequency]}.",
+            )
+            return
+
+        # --- Handle Notification Timing Update ---
+        if command_text_lower.startswith("change notification timing to"):
+            new_time = command_text_lower.replace(
+                "change notification timing to", ""
+            ).strip()
+
+            if not is_valid_time_format(new_time):
+                send_whatsapp_message(
+                    phone_number,
+                    "Invalid time format. Use formats like *10:00 AM*, *10am*, *10:00am*, *10 AM*, etc.",
+                )
+                return
+
+            # Update the notification time
+            update_google_sheet("Notification Time", new_time, row_index)
+            send_whatsapp_message(
+                phone_number, f"Your notification time has been updated to {new_time}."
+            )
+            return
+
+        # If no valid command was found
+        send_invalid_command_message(phone_number)
+
+        # If not a timing change, parse the change command
         updates = parse_change_command(command_text)
         if not updates:
             send_invalid_command_message(phone_number)
@@ -41,55 +102,49 @@ def handle_change_command(phone_number: str, command_text: str) -> None:
         # --- Handle Sports Update ---
         if "sports" in updates:
             sports_update = updates["sports"]
-            valid_sports, invalid_sports = validate_sports(sports_update["new"])
-
             current_preferences = set(player_data["Preferences"].split(", "))
 
             if sports_update["action"] == "add":
-                new_preferences = set(valid_sports) - current_preferences
+                new_sports = set(sports_update["new"]) & SUPPORTED_SPORTS
+                invalid_sports = set(sports_update["new"]) - SUPPORTED_SPORTS
 
-                if new_preferences:
-                    updated_preferences = list(current_preferences | new_preferences)
+                added_sports = new_sports - current_preferences
+                already_added = new_sports & current_preferences
+
+                if added_sports:
+                    updated_preferences = list(current_preferences | added_sports)
                     update_google_sheet("Preferences", ", ".join(updated_preferences), row_index)
                     acknowledgment.append(
-                        f"Added new sports: {', '.join(new_preferences)}. "
+                        f"Added new sports: {', '.join(added_sports)}. "
                         f"Your updated preferences are: {', '.join(updated_preferences)}."
                     )
-                else:
-                    acknowledgment.append("No new sports were added as all were already in your preferences.")
+
+                if already_added:
+                    acknowledgment.append(
+                        f"The following sports were already in your preferences: {', '.join(already_added)}."
+                    )
+
+                if invalid_sports:
+                    acknowledgment.append(
+                        f"The following sports are not supported: {', '.join(invalid_sports)}."
+                    )
 
             elif sports_update["action"] == "replace":
+                valid_sports = set(sports_update["new"]) & SUPPORTED_SPORTS
+                invalid_sports = set(sports_update["new"]) - SUPPORTED_SPORTS
+
                 if valid_sports:
                     update_google_sheet("Preferences", ", ".join(valid_sports), row_index)
                     acknowledgment.append(
-                        f"Your sports preferences have been updated from "
-                        f"{', '.join(player_data['Preferences'].split(', '))} to {', '.join(valid_sports)}."
+                        f"Your sports preferences have been updated to {', '.join(valid_sports)}."
                     )
-                else:
-                    acknowledgment.append("No valid sports were provided for replacement.")
 
-            if invalid_sports:
-                acknowledgment.append(
-                    f"The following sports were not added as they are not supported: {', '.join(invalid_sports)}."
-                )
+                if invalid_sports:
+                    acknowledgment.append(
+                        f"The following sports are not supported: {', '.join(invalid_sports)}."
+                    )
 
-        # --- Handle Timing Update ---
-        if "timing" in updates:
-            timing_update = updates["timing"]
-            update_google_sheet("Notification Time", timing_update["new"], row_index)
-            acknowledgment.append(
-                f"Your notification timing has been updated from {timing_update['old']} to {timing_update['new']}."
-            )
-
-        # --- Handle Notification Days Update ---
-        if "days" in updates:
-            day_update = updates["days"]
-            update_google_sheet("Notification Frequency", ", ".join(day_update["new"]), row_index)
-            acknowledgment.append(
-                f"Your notification days have been updated from {', '.join(day_update['old'])} to {', '.join(day_update['new'])}."
-            )
-
-        # Send acknowledgment if any updates were made
+        # Send acknowledgment if updates were made
         if acknowledgment:
             send_whatsapp_message(
                 phone_number, "Your updates have been successfully processed:\n" + "\n".join(acknowledgment)
@@ -104,6 +159,12 @@ def handle_change_command(phone_number: str, command_text: str) -> None:
         send_whatsapp_message(
             phone_number, "An error occurred while processing your request. Please try again later."
         )
+
+# --- Validate Time Format ---
+def is_valid_time_format(time_str: str) -> bool:
+    import re
+    pattern = re.compile(r"^(0?[1-9]|1[0-2]):?[0-5][0-9]?\s?(am|pm|AM|PM)?$")
+    return bool(pattern.match(time_str.strip()))
 
 
 def handle_add_command(phone_number: str, result: dict) -> None:
@@ -186,16 +247,6 @@ def handle_add_command(phone_number: str, result: dict) -> None:
             phone_number, "An error occurred while processing your request. Please try again later."
         )
 
-# commands/change_command.py
-
-import logging
-from sheets.google_sheets import fetch_sheet_data, update_google_sheet
-from commands.message_parser import parse_remove_command
-from notifications.whatsapp_notifier import send_whatsapp_message
-
-logger = logging.getLogger(__name__)
-
-SUPPORTED_SPORTS = {"football", "cricket", "padel", "pickleball"}
 
 def handle_remove_command(phone_number: str, result: dict) -> None:
     try:
@@ -275,6 +326,17 @@ def handle_remove_command(phone_number: str, result: dict) -> None:
             phone_number, "An error occurred while processing your request. Please try again later."
         )
 
+def is_valid_time_format(time_str: str) -> bool:
+    """
+    Validate common time formats like:
+    - 10:00 AM
+    - 10am
+    - 10:00am
+    - 10 AM
+    """
+    pattern = re.compile(r"^(0?[1-9]|1[0-2]):?[0-5]?[0-9]?\s?(am|pm|AM|PM)?$")
+    return bool(pattern.match(time_str.strip()))
+
 
 
 # --- Send Invalid Command Message ---
@@ -287,5 +349,3 @@ def send_invalid_command_message(phone_number: str) -> None:
         "- *change notification timings from 10 am to 11 am*\n"
         "- *change notification day from Monday to Tuesday and Friday*"
     )
-
-

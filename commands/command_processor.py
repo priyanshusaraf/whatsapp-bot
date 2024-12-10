@@ -8,6 +8,7 @@ from commands.update_command import (
     handle_updates_command,
     handle_court_updates_command,
 )
+from commands.view_preferences_command import handle_view_preferences_command
 import logging
 from commands.message_parser import parse_change_command, parse_add_command, parse_remove_command
 logger = logging.getLogger(__name__)
@@ -62,6 +63,9 @@ def process_command(phone_number: str, command_text: str) -> None:
             handle_help_command(phone_number)
         elif command == "discontinue":
             handle_discontinue_command(phone_number)
+        elif command.startswith("view preferences"):
+            handle_view_preferences_command(phone_number)
+
         else:
             send_whatsapp_message(
                 phone_number, "Invalid command. Type *help* to see available commands."

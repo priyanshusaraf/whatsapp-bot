@@ -8,6 +8,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Booking Links
+BUSINESS_LINKS = {
+    "turfXL": "https://rebrand.ly/sy6d8zz",
+    "PadelClub": "https://rebrand.ly/qd75mj9"
+}
+
 # Notification Frequency Mapping
 FREQUENCY_TO_DAYS = {
     "daily": "mon,tue,wed,thu,fri,sat,sun",
@@ -18,9 +24,6 @@ FREQUENCY_TO_DAYS = {
 
 # Normalize Phone Number
 def normalize_phone_number(phone_number):
-    """
-    Ensure the phone number is a string and format it correctly.
-    """
     try:
         phone_number_str = str(phone_number).strip()
         if not phone_number_str.startswith("+"):
@@ -32,9 +35,6 @@ def normalize_phone_number(phone_number):
 
 # Notify Player Function
 def _notify_player(player: dict, _):
-    """
-    Fetch matching slots and send a WhatsApp message.
-    """
     try:
         phone_number = normalize_phone_number(player["Phone Number"])
         player_name = player["Player Name"]
@@ -46,7 +46,7 @@ def _notify_player(player: dict, _):
 
         # Construct Notification Message
         if not matched_slots.empty:
-            message_body = construct_business_message(player_name, matched_slots)
+            message_body = construct_update_message(player_name, matched_slots)
         else:
             message_body = f"Hi {player_name}, currently no available slots match your preferences."
 
@@ -59,23 +59,16 @@ def _notify_player(player: dict, _):
 
 # Schedule Notification Function
 def schedule_notification(player: dict, notification_frequency: str, notification_time: str):
-    """
-    Schedule a WhatsApp notification based on player's preferences.
-    """
     try:
-        # Validate and parse time
         hour, minute = parse_time(notification_time)
         logger.info(f"Parsed notification time: {hour}:{minute}")
 
-        # Define Job ID
         phone_number = normalize_phone_number(player["Phone Number"])
         job_id = f"{phone_number}_notification"
 
-        # Validate Frequency
         if notification_frequency not in FREQUENCY_TO_DAYS:
             raise ValueError(f"Invalid notification frequency: {notification_frequency}")
 
-        # Schedule the Job
         scheduler.add_job(
             func=_notify_player,
             trigger=CronTrigger(
@@ -97,9 +90,6 @@ def schedule_notification(player: dict, notification_frequency: str, notificatio
 
 # Match Player with Available Slots
 def match_player_with_slots(player: dict) -> pd.DataFrame:
-    """
-    Match available slots from Google Sheets with player preferences.
-    """
     try:
         all_slots = fetch_not_booked_slots()
 
@@ -107,11 +97,9 @@ def match_player_with_slots(player: dict) -> pd.DataFrame:
             logger.warning("No available slots fetched from business sheets.")
             return pd.DataFrame()
 
-        # Normalize Player Preferences
         player_localities = [loc.strip().lower() for loc in player["Locality"].split(",")]
         player_preferences = [sport.strip().lower() for sport in player["Preferences"].split(",")]
 
-        # Filter Matching Slots
         matched_slots = all_slots[
             (all_slots["Locality"].isin(player_localities)) & 
             (all_slots["Sport"].isin(player_preferences))
@@ -124,20 +112,34 @@ def match_player_with_slots(player: dict) -> pd.DataFrame:
         logger.error(f"Error matching player {player['Player Name']} with slots: {e}")
         return pd.DataFrame()
 
-# Construct WhatsApp Message
-def construct_business_message(player_name: str, matched_slots: pd.DataFrame) -> str:
-    """
-    Construct a personalized WhatsApp message for the player.
-    """
-    if matched_slots.empty:
+# Construct WhatsApp Message with Booking Links
+def construct_update_message(player_name: str, slots_df) -> str:
+    if slots_df.empty:
         return f"Hi {player_name}, currently no available slots match your preferences."
 
-    message = f"Hi {player_name}, here are your latest available slots:\n\n"
-    for _, slot in matched_slots.iterrows():
-        message += (
-            f"• {slot['Business']} ({slot['Sport']}): "
-            f"{slot['Locality']} at {slot['Timing']}\n"
-        )
+    message = f"Hi {player_name}, here are the latest updates for your preferences:\n\n"
 
-    message += "\nPlease book your preferred slot at the earliest!"
+    for _, slot in slots_df.iterrows():
+        business = slot['Business'].strip()
+        sport = slot['Sport'].capitalize()
+        locality = slot['Locality'].capitalize()
+        timing = slot['Timing'].strip()
+
+        # Lookup booking link
+        booking_link = BUSINESS_LINKS.get(business)
+
+        if booking_link:
+            message += (
+                f"• *Business*: {business} | *Sport*: {sport} | "
+                f"*Locality*: {locality} | *Timing*: {timing}\n"
+                f"👉 *Book Now*: {booking_link}\n\n"
+            )
+        else:
+            message += (
+                f"• *Business*: {business} | *Sport*: {sport} | "
+                f"*Locality*: {locality} | *Timing*: {timing}\n"
+                "👉 *Book Now*: Booking link not available\n\n"
+            )
+
+    logger.debug(f"Constructed message: \n{message}")
     return message
