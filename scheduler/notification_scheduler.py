@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 
 # Booking Links
 BUSINESS_LINKS = {
-    "turfXL": "https://rebrand.ly/sy6d8zz",
-    "PadelClub": "https://rebrand.ly/qd75mj9"
+    "turfxl": "https://rebrand.ly/sy6d8zz",
+    "padelclub": "https://rebrand.ly/qd75mj9"
 }
 
 # Notification Frequency Mapping
@@ -34,7 +34,7 @@ def normalize_phone_number(phone_number):
         raise
 
 # Notify Player Function
-def _notify_player(player: dict, _):
+def _notify_player(player: dict, context=None):
     try:
         phone_number = normalize_phone_number(player["Phone Number"])
         player_name = player["Player Name"]
@@ -55,29 +55,38 @@ def _notify_player(player: dict, _):
         logger.info(f"Notification sent successfully to {phone_number}.")
 
     except Exception as e:
-        logger.error(f"Failed to send notification to {player['Player Name']} ({phone_number}): {e}")
+        logger.error(f"Failed to send notification to {player_name} ({phone_number}): {e}")
 
 # Schedule Notification Function
 def schedule_notification(player: dict, notification_frequency: str, notification_time: str):
     try:
+        # Validate and parse time
         hour, minute = parse_time(notification_time)
         logger.info(f"Parsed notification time: {hour}:{minute}")
 
+        # Define Job ID
         phone_number = normalize_phone_number(player["Phone Number"])
         job_id = f"{phone_number}_notification"
 
-        if notification_frequency not in FREQUENCY_TO_DAYS:
+        # Validate Frequency
+        if notification_frequency.lower() not in FREQUENCY_TO_DAYS:
             raise ValueError(f"Invalid notification frequency: {notification_frequency}")
 
+        # Remove existing job if present
+        if scheduler.get_job(job_id):
+            logger.info(f"Removing existing job {job_id}")
+            scheduler.remove_job(job_id)
+
+        # Schedule the Job
         scheduler.add_job(
             func=_notify_player,
             trigger=CronTrigger(
-                day_of_week=FREQUENCY_TO_DAYS[notification_frequency],
+                day_of_week=FREQUENCY_TO_DAYS[notification_frequency.lower()],
                 hour=hour,
                 minute=minute,
             ),
             id=job_id,
-            args=[player, None],
+            args=[player, None],  # Ensure context is passed
             replace_existing=True,
         )
 
@@ -120,7 +129,7 @@ def construct_update_message(player_name: str, slots_df) -> str:
     message = f"Hi {player_name}, here are the latest updates for your preferences:\n\n"
 
     for _, slot in slots_df.iterrows():
-        business = slot['Business'].strip()
+        business = slot['Business'].strip().lower()
         sport = slot['Sport'].capitalize()
         locality = slot['Locality'].capitalize()
         timing = slot['Timing'].strip()
@@ -128,18 +137,11 @@ def construct_update_message(player_name: str, slots_df) -> str:
         # Lookup booking link
         booking_link = BUSINESS_LINKS.get(business)
 
-        if booking_link:
-            message += (
-                f"• *Business*: {business} | *Sport*: {sport} | "
-                f"*Locality*: {locality} | *Timing*: {timing}\n"
-                f"👉 *Book Now*: {booking_link}\n\n"
-            )
-        else:
-            message += (
-                f"• *Business*: {business} | *Sport*: {sport} | "
-                f"*Locality*: {locality} | *Timing*: {timing}\n"
-                "👉 *Book Now*: Booking link not available\n\n"
-            )
+        message += (
+            f"• *Business*: {slot['Business']} | *Sport*: {sport} | "
+            f"*Locality*: {locality} | *Timing*: {timing}\n"
+            f"👉 *Book Now*: {booking_link or 'Booking link not available'}\n\n"
+        )
 
     logger.debug(f"Constructed message: \n{message}")
     return message

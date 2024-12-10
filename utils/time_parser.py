@@ -3,10 +3,18 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def parse_time(notification_time: str) -> tuple:
+def parse_time(time_str: str):
     try:
-        time_obj = datetime.strptime(notification_time.strip(), "%I:%M %p")
-        return time_obj.hour, time_obj.minute
-    except ValueError as e:
-        logger.error(f"Error parsing time '{notification_time}': {e}")
-        raise ValueError(f"Invalid time format: {notification_time}")
+        if ":" in time_str:
+            # Try 12-hour format first
+            try:
+                parsed_time = datetime.strptime(time_str.strip().lower(), "%I:%M %p")
+            except ValueError:
+                # Fallback to 24-hour format
+                parsed_time = datetime.strptime(time_str.strip(), "%H:%M")
+            return parsed_time.hour, parsed_time.minute
+        else:
+            raise ValueError("Invalid time format. Ensure the time is in HH:MM or HH:MM AM/PM format.")
+    except Exception as e:
+        logger.error(f"Error parsing time '{time_str}': {e}")
+        raise ValueError(f"Invalid time format: {time_str}")

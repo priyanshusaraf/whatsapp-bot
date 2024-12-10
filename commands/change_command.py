@@ -25,7 +25,7 @@ SUPPORTED_FREQUENCIES = {
 # --- Handle Change Command ---
 def handle_change_command(phone_number: str, command_text: str) -> None:
     try:
-        # Fetch player data
+        # Normalize input
         command_text_lower = command_text.lower().strip()
 
         # Fetch player data
@@ -42,8 +42,6 @@ def handle_change_command(phone_number: str, command_text: str) -> None:
         # Extract player's row index in Google Sheets
         player_data = player.iloc[0]
         row_index = player.index[0] + 2  # Adjust for header
-
-        acknowledgment = []
 
         # --- Handle Notification Frequency Update ---
         if command_text_lower.startswith("change notification frequency to"):
@@ -66,7 +64,7 @@ def handle_change_command(phone_number: str, command_text: str) -> None:
                 phone_number,
                 f"Your notification frequency has been updated to {SUPPORTED_FREQUENCIES[new_frequency]}.",
             )
-            return
+            return  # Early exit after successful update
 
         # --- Handle Notification Timing Update ---
         if command_text_lower.startswith("change notification timing to"):
@@ -86,20 +84,16 @@ def handle_change_command(phone_number: str, command_text: str) -> None:
             send_whatsapp_message(
                 phone_number, f"Your notification time has been updated to {new_time}."
             )
-            return
+            return  # Early exit after successful update
 
-        # If no valid command was found
-        send_invalid_command_message(phone_number)
-
-        # If not a timing change, parse the change command
-        updates = parse_change_command(command_text)
+        # --- Handle Sports Update ---
+        updates = parse_change_command(command_text_lower)
         if not updates:
             send_invalid_command_message(phone_number)
             return
 
         acknowledgment = []
 
-        # --- Handle Sports Update ---
         if "sports" in updates:
             sports_update = updates["sports"]
             current_preferences = set(player_data["Preferences"].split(", "))
@@ -113,7 +107,9 @@ def handle_change_command(phone_number: str, command_text: str) -> None:
 
                 if added_sports:
                     updated_preferences = list(current_preferences | added_sports)
-                    update_google_sheet("Preferences", ", ".join(updated_preferences), row_index)
+                    update_google_sheet(
+                        "Preferences", ", ".join(updated_preferences), row_index
+                    )
                     acknowledgment.append(
                         f"Added new sports: {', '.join(added_sports)}. "
                         f"Your updated preferences are: {', '.join(updated_preferences)}."
@@ -134,7 +130,9 @@ def handle_change_command(phone_number: str, command_text: str) -> None:
                 invalid_sports = set(sports_update["new"]) - SUPPORTED_SPORTS
 
                 if valid_sports:
-                    update_google_sheet("Preferences", ", ".join(valid_sports), row_index)
+                    update_google_sheet(
+                        "Preferences", ", ".join(valid_sports), row_index
+                    )
                     acknowledgment.append(
                         f"Your sports preferences have been updated to {', '.join(valid_sports)}."
                     )
@@ -144,10 +142,11 @@ def handle_change_command(phone_number: str, command_text: str) -> None:
                         f"The following sports are not supported: {', '.join(invalid_sports)}."
                     )
 
-        # Send acknowledgment if updates were made
         if acknowledgment:
             send_whatsapp_message(
-                phone_number, "Your updates have been successfully processed:\n" + "\n".join(acknowledgment)
+                phone_number,
+                "Your updates have been successfully processed:\n"
+                + "\n".join(acknowledgment),
             )
         else:
             send_whatsapp_message(
@@ -159,6 +158,7 @@ def handle_change_command(phone_number: str, command_text: str) -> None:
         send_whatsapp_message(
             phone_number, "An error occurred while processing your request. Please try again later."
         )
+
 
 # --- Validate Time Format ---
 def is_valid_time_format(time_str: str) -> bool:
