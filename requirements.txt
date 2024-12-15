@@ -1,0 +1,8 @@
+flask
+gspread
+pandas
+numpy
+google-auth
+twilio
+apscheduler
+redis

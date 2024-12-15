@@ -2,22 +2,15 @@
 
 from notifications.whatsapp_notifier import send_whatsapp_message
 from sheets.google_sheets import fetch_sheet_data, fetch_not_booked_slots
+from commands.message_parser import parse_change_command, parse_court_name, parse_timing
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Court Aliases (Case-Insensitive)
-COURT_ALIASES = {
-    "turfxl": "turfXL",
-    "playplex": "PlayPlex",
-    "turfedge": "TurfEdge",
-    "padelclub": "The Padel Club",
-}
-
 # Booking Links
 BUSINESS_LINKS = {
-    "turfXL": "https://rebrand.ly/sy6d8zz",
-    "PadelClub": "https://rebrand.ly/qd75mj9",
+    "TurfXL": "https://rebrand.ly/sy6d8zz",
+    "The Padel Club": "https://rebrand.ly/qd75mj9",
 }
 
 # --- Handle Update Command ---
@@ -47,15 +40,7 @@ def handle_updates_command(phone_number: str) -> None:
 def handle_court_updates_command(phone_number: str, command_text: str) -> None:
     try:
         # Extract and normalize the court name from the command
-        court_name_input = (
-            command_text.lower()
-            .replace("updates on", "")
-            .replace("update on", "")
-            .strip()
-        )
-
-        # Map the input to a valid court name
-        court_name = COURT_ALIASES.get(court_name_input)
+        court_name = parse_court_name(command_text)
 
         if not court_name:
             send_whatsapp_message(
@@ -135,7 +120,7 @@ def construct_update_message(player_name: str, slots_df) -> str:
         business = slot['Business']
         sport = slot['Sport'].capitalize()
         locality = slot['Locality'].capitalize()
-        timing = slot['Timing']
+        timing = parse_timing(slot['Timing'])
         booking_link = BUSINESS_LINKS.get(business, "Booking link not available")
 
         message += (

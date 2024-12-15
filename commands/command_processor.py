@@ -63,7 +63,7 @@ def process_command(phone_number: str, command_text: str) -> None:
             handle_help_command(phone_number)
         elif command == "discontinue":
             handle_discontinue_command(phone_number)
-        elif command.startswith("view preferences"):
+        elif command.startswith("view preferences") or command.startswith("show preferences"):
             handle_view_preferences_command(phone_number)
 
         else:
