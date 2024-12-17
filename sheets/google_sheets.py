@@ -50,25 +50,46 @@ def fetch_not_booked_slots() -> pd.DataFrame:
         all_business_data = []
 
         for sheet in spreadsheet.worksheets():
-            data = sheet.get_all_records()
-            if not data:
-                continue
+            try:
+                # Fetch records
+                data = sheet.get_all_records()
+                if not data:
+                    logger.info(f"No data found in sheet {sheet.title}.")
+                    continue
 
-            df = pd.DataFrame(data)
-            if {"Locality", "Sport", "Status"}.issubset(df.columns):
-                df["Locality"] = df["Locality"].str.strip().str.lower()
-                df["Sport"] = df["Sport"].str.strip().str.lower()
-                df["Status"] = df["Status"].str.strip().str.lower()
+                # Convert to DataFrame
+                df = pd.DataFrame(data)
+                
+                # Validate required columns
+                required_columns = {"Locality", "Sport", "Status"}
+                if not required_columns.issubset(df.columns):
+                    logger.warning(f"Missing required columns in sheet {sheet.title}. Skipping...")
+                    continue
+
+                # Normalize and filter data
+                df["Locality"] = df["Locality"].astype(str).str.strip().str.lower()
+                df["Sport"] = df["Sport"].astype(str).str.strip().str.lower()
+                df["Status"] = df["Status"].astype(str).str.strip().str.lower()
 
                 not_booked = df[df["Status"] == "not booked"].copy()
-                not_booked["Business"] = sheet.title
-                all_business_data.append(not_booked)
+                if not not_booked.empty:
+                    not_booked["Business"] = sheet.title
+                    all_business_data.append(not_booked)
+                else:
+                    logger.info(f"No 'Not Booked' slots in sheet {sheet.title}.")
+            except Exception as sheet_error:
+                logger.error(f"Error processing sheet {sheet.title}: {sheet_error}")
 
-        return pd.concat(all_business_data, ignore_index=True) if all_business_data else pd.DataFrame()
+        if all_business_data:
+            result_df = pd.concat(all_business_data, ignore_index=True)
+            logger.info(f"Fetched {len(result_df)} 'Not Booked' slots.")
+            return result_df
+        else:
+            logger.info("No 'Not Booked' slots found across all sheets.")
+            return pd.DataFrame()
     except Exception as e:
         logger.error(f"Error fetching business data: {e}")
         return pd.DataFrame()
-
 
 # --- Format Notification Time ---
 def format_notification_time(time_str: str) -> str:
