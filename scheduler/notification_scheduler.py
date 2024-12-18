@@ -1,6 +1,6 @@
 from scheduler.scheduler_service import scheduler
 from apscheduler.triggers.cron import CronTrigger
-from sheets.google_sheets import fetch_not_booked_slots
+from sheets.google_sheets import fetch_not_booked_slots, parse_date_from_sheet
 from notifications.whatsapp_notifier import send_whatsapp_message
 from utils.time_parser import parse_time
 import pandas as pd
@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 
 # Booking Links
 BUSINESS_LINKS = {
-    "turfxl": "https://rebrand.ly/sy6d8zz",
-    "padelclub": "https://rebrand.ly/qd75mj9"
+    "turfXL": "https://rebrand.ly/sy6d8zz",
+    "PadelClub": "https://rebrand.ly/qd75mj9"
 }
 
 # Notification Frequency Mapping
@@ -121,27 +121,51 @@ def match_player_with_slots(player: dict) -> pd.DataFrame:
         logger.error(f"Error matching player {player['Player Name']} with slots: {e}")
         return pd.DataFrame()
 
-# Construct WhatsApp Message with Booking Links
-def construct_update_message(player_name: str, slots_df) -> str:
+logger = logging.getLogger(__name__)
+
+# --- Construct WhatsApp Update Message ---
+def construct_update_message(player_name: str, slots_df: pd.DataFrame) -> str:
     if slots_df.empty:
         return f"Hi {player_name}, currently no available slots match your preferences."
 
     message = f"Hi {player_name}, here are the latest updates for your preferences:\n\n"
 
     for _, slot in slots_df.iterrows():
-        business = slot['Business'].strip().lower()
-        sport = slot['Sport'].capitalize()
-        locality = slot['Locality'].capitalize()
-        timing = slot['Timing'].strip()
+        details = []
 
-        # Lookup booking link
-        booking_link = BUSINESS_LINKS.get(business)
+        # Add Slot Details
+        if "Business" in slot:
+            details.append(f"*Turf*: {slot['Business'].capitalize()}")
 
-        message += (
-            f"• *Business*: {slot['Business']} | *Sport*: {sport} | "
-            f"*Locality*: {locality} | *Timing*: {timing}\n"
-            f"👉 *Book Now*: {booking_link or 'Booking link not available'}\n\n"
-        )
+        if "Sport" in slot:
+            details.append(f"*Sport*: {slot['Sport'].capitalize()}")
 
-    logger.debug(f"Constructed message: \n{message}")
+        if "Locality" in slot:
+            details.append(f"*Area*: {slot['Locality'].capitalize()}")
+
+        if "Date" in slot and slot["Date"] not in [None, ""]:
+            formatted_date = parse_date_from_sheet(slot["Date"])
+            details.append(f"*Date*: {formatted_date}")
+        else:
+            details.append(f"*Date*: Not Provided")
+
+        if "Timing" in slot and slot["Timing"] not in [None, ""]:
+            details.append(f"*Timing*: {slot['Timing']}")
+        else:
+            details.append(f"*Timing*: Invalid time format")
+
+        if "Price" in slot and slot["Price"] not in [None, ""]:
+            details.append(f"*Price*: ₹{slot['Price']}")
+        else:
+            details.append(f"*Price*: Not Provided")
+
+        if "Booking" in slot and slot["Booking"] not in [None, ""]:
+            details.append(f"👉 *Book Now*: {slot['Booking']}")
+        else:
+            details.append(f"👉 *Book Now*: Booking link not available")
+
+        # Join details with ' | ' and append to the message
+        message += " | ".join(details) + "\n\n"
+
+    logger.debug(f"Constructed message:\n{message}")
     return message

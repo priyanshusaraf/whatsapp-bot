@@ -1,0 +1,21 @@
+version: "3.8"
+services:
+  whatsapp-bot:
+    build: .
+    volumes:
+      - ./config/matchup.json:/app/config/matchup.json
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - redis
+  redis:
+    image: "redis:latest"
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+volumes:
+  redis_data:

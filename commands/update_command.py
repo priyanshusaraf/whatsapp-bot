@@ -1,19 +1,19 @@
 # commands/update_command.py
 
 from notifications.whatsapp_notifier import send_whatsapp_message
-from sheets.google_sheets import fetch_sheet_data, fetch_not_booked_slots
-from commands.message_parser import parse_change_command, parse_court_name, parse_timing
+from sheets.google_sheets import (
+    fetch_sheet_data, 
+    fetch_not_booked_slots, 
+    parse_date_from_sheet, 
+    validate_slot_timing
+)
+from commands.message_parser import parse_change_command, parse_court_name
 import logging
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Booking Links
-BUSINESS_LINKS = {
-    "TurfXL": "https://rebrand.ly/sy6d8zz",
-    "The Padel Club": "https://rebrand.ly/qd75mj9",
-}
-
-# --- Handle Update Command ---
+# --- Handle Updates Command ---
 def handle_updates_command(phone_number: str) -> None:
     try:
         players_df = fetch_sheet_data("player-response-sheet", "Players")
@@ -112,21 +112,52 @@ def send_latest_updates(player, phone_number: str):
         logger.error(f"Error fetching updates for {player['Player Name']}: {e}")
 
 
-# --- Construct Update Message with Booking Links ---
-def construct_update_message(player_name: str, slots_df) -> str:
+# --- Construct WhatsApp Update Message ---
+def construct_update_message(player_name: str, slots_df: pd.DataFrame) -> str:
+    if slots_df.empty:
+        return f"Hi {player_name}, currently no available slots match your preferences."
+
     message = f"Hi {player_name}, here are the latest updates for your preferences:\n\n"
-    
+
     for _, slot in slots_df.iterrows():
-        business = slot['Business']
-        sport = slot['Sport'].capitalize()
-        locality = slot['Locality'].capitalize()
-        timing = parse_timing(slot['Timing'])
-        booking_link = BUSINESS_LINKS.get(business, "Booking link not available")
+        details = []
 
-        message += (
-            f"• *Business*: {business} | *Sport*: {sport} | "
-            f"*Locality*: {locality} | *Timing*: {timing}\n"
-            f"👉 *Book Now*: {booking_link}\n\n"
-        )
+        # Add Slot Details
+        if "Business" in slot:
+            details.append(f"*Turf*: {slot['Business'].capitalize()}")
 
+        if "Sport" in slot:
+            details.append(f"*Sport*: {slot['Sport'].capitalize()}")
+
+        if "Locality" in slot:
+            details.append(f"*Area*: {slot['Locality'].capitalize()}")
+
+        if "Date" in slot and slot["Date"] not in [None, ""]:
+            try:
+                formatted_date = parse_date_from_sheet(slot["Date"])
+                details.append(f"*Date*: {formatted_date}")
+            except ValueError:
+                details.append(f"*Date*: Invalid Date Format")
+        else:
+            details.append(f"*Date*: Not Provided")
+
+        if "Timing" in slot and validate_slot_timing(slot["Timing"]):
+            details.append(f"*Timing*: {slot['Timing']}")
+        else:
+            details.append(f"*Timing*: Invalid time format")
+
+        if "Price" in slot and slot["Price"] not in [None, ""]:
+            details.append(f"*Price*: ₹{slot['Price']}")
+        else:
+            details.append(f"*Price*: Not Provided")
+
+        if "Booking" in slot and slot["Booking"] not in [None, ""]:
+            details.append(f"👉 *Book Now*: {slot['Booking']}")
+        else:
+            details.append(f"👉 *Book Now*: Booking link not available")
+
+        # Join details with ' | ' and append to the message
+        message += " | ".join(details) + "\n\n"
+
+    logger.debug(f"Constructed message:\n{message}")
     return message
